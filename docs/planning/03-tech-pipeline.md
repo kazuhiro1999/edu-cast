@@ -2,23 +2,24 @@
 
 調査日: 2026-10-23。バージョン・ライセンス条文は実装前に原典で再確認する。
 
-## 結論
+## 結論（2026-10-23 更新: uLipSync 採用・ローカル実行を前提に見直し）
 
-**第一推奨: Web スタック（three.js + @pixiv/three-vrm + Remotion、Node/TypeScript）**。Unity（ScenarioXR）は「演出重視の特別回」か、Web 版の検証で品質が足りなかった場合の代替に回す。
+前提の変更: 実装と実行はローカル（GPU 付き Windows 機）で行う。口パクは uLipSync を使う。Ink は Web でも動く（inkjs）。会社の WebXR 版（CypeAgenticAcademyWeb）は Unity 版と Web 版の両方があり、実装の参考にできる。
 
-| 判断軸 | Web（Remotion + three-vrm） | Unity（ScenarioXR + Recorder） |
+この前提では **Unity（ScenarioXR）を第一候補**にする。当初 Web を推した最大の理由「クラウドで Claude がレンダまで検証できる」が、ローカル実行ではそもそも要らない。残る論点は「無人レンダの組み方」と「板書 UI の作りやすさ」だけで、どちらも Unity で解ける。
+
+| 判断軸 | Unity（ScenarioXR + uLipSync + Recorder） | Web（three-vrm + Remotion） |
 |---|---|---|
-| 無人レンダリング | **完全ヘッドレス・決定論的**。`useCurrentFrame()` でフレーム単位に時間を進める | Recorder は **Editor の Play モード限定、`-batchmode` 不可**（Recorder 5.1 Known Issues）。GUI セッションのある PC が必須。Standalone なら RenderTexture→ffmpeg パイプを自作 |
-| 板書・字幕・図版 | React で書ける。教育 Shorts は画面の7割が板書なのでここが速い | UI Toolkit で可能だが、図版の種類ごとにプレハブ作業 |
-| LLM との相性 | 台本 JSON をそのまま props に渡せる。**クラウドセッション（この環境）で Claude がレンダまで検証できる** | Editor が要るので Claude は目視検証できない |
-| 既存資産 | 会社の WebXR プロジェクトでの Ink / Irodori-TTS 経験（本セッションからは不可視） | ScenarioXR の Ink タグ仕様・ExecutionRunner・UniVRM・VRMA、KitchenXR の Unity CLI 運用 |
-| 口パク | 強制アライメントの timing.json で `aa/ih/ou/ee/oh` を直接駆動 | uLipSync（MFCC）で音声から推定。BakedData→AnimationClip でオフライン化可 |
-| 見た目 | MToon は three-vrm が対応。髪・揺れ物は SpringBone 対応 | URP＋独自シェーダ・ライティングを作り込めるなら上 |
-| 実行環境 | CPU でも動く（遅い）。GPU があれば `--gl=angle` | ローカル GPU 機でセルフホスト前提 |
-| ライセンス | Remotion は個人・従業員3人以下は無料（商用可）。three-vrm MIT | Unity Personal は売上 $200K 未満で可 |
-| 先行事例 | remotion-voicevox-template（★284）、VOICEVOX-Movie-Factory（モーラ時刻→Remotion）など多数。VRM＋Remotion は空白 | VrmVideoMaker（GUI）。無人化の公開事例なし |
+| 既存資産 | ScenarioXR の Ink タグ・ExecutionRunner・UniVRM・VRMA がそのまま動く。KitchenXR の Unity CLI 運用経験 | 会社の Web 版の設計（タグ・TTS 組み込み・口パク）を参考にできるが、コードは持ち出せない |
+| 口パク | **uLipSync（MFCC）で音声から直接**。アライメント不要。BakedData→AnimationClip でオフライン化も可 | 強制アライメントで timing.json を作る工程が必要 |
+| 字幕の時刻 | 行単位で十分（セリフ全文を 2行表示）。各行の開始＝音声クリップの開始、終了＝クリップ長。アライメント不要 | 同左（Remotion captions は語単位も可） |
+| 無人レンダ | Recorder は Editor の Play モード限定・batchmode 不可。**ログイン済みの Windows 機で Editor を CLI 起動（`-executeMethod`、`-batchmode` なし）→ Play → Recorder** で回す。タスクスケジューラで毎日実行 | 完全ヘッドレス・決定論的 |
+| 板書・図版 | UI Toolkit で型4種のパネルを作る（KitchenXR で使用済み） | React |
+| 音声同期 | Recorder は Unity 内蔵オーディオを `AudioRenderer` で取り込み、映像と同期した MP4 を出す。「Cap frame rate」で固定ステップにしても音声は正しく録れる | `<Audio>` を並べるだけ |
+| 見た目 | URP・シェーダ・揺れ物を作り込める。MToon も UniVRM で可 | MToon 対応。細かい作り込みは Unity に劣る |
+| ライセンス | Unity Personal（売上 $200K 未満）。uLipSync / UniVRM MIT | Remotion 個人無料、three-vrm MIT |
 
-決め手は「AI 駆動」の部分。台本生成からレンダ・検証までを Claude Code が単一の TypeScript リポジトリで回せるのが Web 版で、Unity 版は人がエディタを開く工程が残る。
+**Web を選び直す条件**: 会社の Web 版を確認した結果、three-vrm＋Ink＋Irodori-TTS の統合が既に成熟しており、口パク・字幕・進行制御をそのまま参考実装にできる場合。その場合は uLipSync の代わりに「音量＋母音推定」か強制アライメントが必要になる（uLipSync は Unity 専用）。
 
 ## パイプライン全体
 
@@ -27,10 +28,10 @@
 [2] 台本      script.json ──► Ink 生成（テンプレ）──► inkjs でコンパイル検証 ──► story.ink / story.json
 [3] 展開      inkjs でストーリーを走査 ──► cue list（セリフ・タグ・板書の列）
 [4] 音声      Irodori-TTS（Python, 48kHz wav）× セリフごと ──► voice/NN.wav（キャッシュ: sha256(text|voice)）
-[5] 整列      pyopenjtalk G2P + pydomino（or Qwen3-ForcedAligner）──► timing.json（モーラ・母音・文節の開始/終了）
-[6] タイムライン cue list + timing.json ──► timeline.json（各 cue の開始フレーム、口形キー、字幕ページ、板書状態、表情、モーション）
-[7] レンダ    Remotion composition（<ThreeCanvas> に VRM + VRMA、板書は React、字幕は @remotion/captions）
-              npx remotion render --width 1080 --height 1920 --fps 30 ──► out/NN.mp4
+[5] 口パク    uLipSync で wav から BakedData（母音の時系列）を事前生成（Editor スクリプト。任意: 実行時解析でも可）
+[6] タイムライン cue list + 各 wav の長さ ──► timeline.json（各 cue の開始フレーム、字幕ページ、板書状態、表情、モーション）
+[7] レンダ    Unity Editor を CLI 起動 → Play → ScenarioEngine が story.json を再生 → Recorder が 1080x1920 30fps MP4 を出力
+              （代替: Web 版 = Remotion + three-vrm）
 [8] 検品      自動: 尺・無音・字幕はみ出し・セーフゾーン・音量（LUFS）。人: 10〜15分レビュー
 [9] 投稿      YouTube Data API videos.insert（private + publishAt, containsSyntheticMedia=true）
 [10] 計測     Analytics API（engagedViews, APV, viewed/swiped）──► topic queue の優先度に反映
@@ -61,19 +62,23 @@
 - **音素・モーラのタイムスタンプは出さない**（duration predictor と `--seconds` のみ）。したがって口パクと字幕時刻は [5] で作る。
 - 推論は Python。OpenAI 互換サーバを常駐させて HTTP で呼ぶか、`uv run` のサブプロセス。AI-Manor の `voice.py` にある「エンジン起動・停止」「wav キャッシュ（sha256(text|speaker)）」「口形予定表を wav の隣に .json で保存」の機構はそのまま流用できる。
 
-### [5] 整列: 台本が既知なので ASR は不要
+### [5] 口パク: uLipSync を使う（代替: 強制アライメント）
+
+uLipSync（MIT）は MFCC で音声から `aa/ih/ou/ee/oh` を推定する。VRM 1.0 は `uLipSyncExpressionVRM` で `VRM10ObjectExpression` に直結。オフライン化は BakedData（wav → 母音時系列）を Editor で事前生成し、AnimationClip か Timeline の uLipSync トラックで再生する。キャラの声でキャリブレーション（母音ごとの MFCC プロファイル登録）を一度やれば精度が安定する。
+
+字幕は行単位で出す（セリフ全文、13字×2行）。開始時刻＝音声クリップの再生開始、終了＝クリップ長なので、音素アライメントは不要。語単位のカラオケ風強調をやりたくなった場合だけ、以下の強制アライメントを足す。
 
 | 方法 | 評価 |
 |---|---|
-| **pydomino**（Dwango、CTC、CPU 可、日本語音素専用） | 推奨。pyopenjtalk で G2P → 音素境界 |
+| **pydomino**（Dwango、CTC、CPU 可、日本語音素専用） | 語単位字幕が必要になったら。pyopenjtalk で G2P → 音素境界 |
 | Qwen3-ForcedAligner-0.6B | 日本語対応、80ms 分解能。精度比較用 |
 | Montreal Forced Aligner 3.0 | 日本語 CSJ で境界誤差 <15ms。環境構築が重い |
 | stable-ts `align()` | whisper ベースの代替 |
 | 音量ベース | 「あ」しか動かない。フォールバック |
 
-出力 `timing.json` は `{mora, vowel, start, end}` の配列。VRM の口は `aa/ih/ou/ee/oh` の5母音なので、日本語は母音をそのまま写像でき、子音区間で口を少し閉じる。字幕は pyopenjtalk の形態素境界で文節に切り、同じ時刻から作る。AI-Manor の `face_speech.build_cues`（VOICEVOX の audio_query からモーラ時刻→口形）が設計の雛形。
+強制アライメントを使う場合の出力 `timing.json` は `{mora, vowel, start, end}` の配列。AI-Manor の `face_speech.build_cues`（VOICEVOX の audio_query からモーラ時刻→口形）が設計の雛形。
 
-### [7] レンダ: Remotion + three-vrm
+### [7] レンダ（代替案の詳細）: Remotion + three-vrm
 
 - `@remotion/three` の `<ThreeCanvas>` 内で `@pixiv/three-vrm`（3.5.x、VRM 0.x/1.0）と `@pixiv/three-vrm-animation`（VRMA）を使う。**`useFrame`/`clock`/`requestAnimationFrame` は使わず、`useCurrentFrame()` から `mixer.setTime(frame/fps)` と `expressionManager.setValue()` を毎フレーム決定論的に設定**する。
 - VRMA は VRoid 公式 BOOTH の無料7種、Mixamo→VRMA 変換（`fbx2vrma-converter`）。必要モーションは talk / idle / point / think / happy / nod の6種程度。
@@ -91,16 +96,18 @@
 | AI 開示 | `status.containsSyntheticMedia=true`（2024-10-30 追加）。安全側で true |
 | Shorts 判定 | 縦 9:16 かつ 3分以内で自動。`#Shorts` は任意。サムネイル不要 |
 
-## Unity（ScenarioXR）を使う場合の設計
+## Unity（ScenarioXR）での設計（第一候補）
 
 ScenarioXR の `InkBridge → ExecutionRunner → Scene/Actor` はそのまま使える。足すのは以下。
 
-1. **Standalone プレイヤーをレンダラにする**: `ShortsRenderer.exe --scenario story.json --timeline timeline.json --out NN.mp4`。Recorder を使わず、`Time.captureFramerate = 30` で固定ステップにし、RenderTexture を読み出して ffmpeg にパイプ（keijiro/FFmpegOut 相当）。音声はエンジン内で鳴らさず、timeline.json の開始フレームから ffmpeg で後合成する（捕捉フレームレート下では AudioSource の実時間再生が同期しないため）。
+1. **録画は 2段構え**。
+   - **第1案（まずこれ）: Editor + Recorder を CLI から起動**。`Unity.exe -projectPath . -executeMethod EduCast.Editor.ShortsRecorder.Run -episode NN`（`-batchmode` を付けない。Recorder は batchmode で動かない）。エディタスクリプトが `RecorderController` を設定 → `EditorApplication.EnterPlaymode` → ScenarioEngine が story.json を再生 → 終了タグで Recorder 停止 → Editor 終了。Recorder は Unity 内蔵オーディオを取り込むので uLipSync の実行時解析と音声が同期した MP4 が出る。KitchenXR の `editor-layout-backup.ps1` と同じくレイアウト退避が要る。
+   - **第2案（第1案が不安定なら）: Standalone プレイヤーをレンダラにする**。`ShortsRenderer.exe --scenario story.json --timeline timeline.json --out NN.mp4`。`Time.captureFramerate = 30` で固定ステップにし、RenderTexture を読み出して ffmpeg にパイプ（keijiro/FFmpegOut 相当）。音声はエンジン内で鳴らさず timeline.json の開始フレームから ffmpeg で後合成する。この場合 uLipSync は BakedData を使う（実時間の AudioSource に依存しないため）。
 2. **板書 UI**: UI Toolkit（KitchenXR で使用済み）でテンプレ4型分のパネルを作る。
-3. **口パク**: uLipSync の BakedData → AnimationClip、または [5] の timing.json を `ExpressionController` で再生（Web 版と共通の中間成果物）。
+3. **口パク**: uLipSync。第1案なら実行時解析、第2案なら BakedData → AnimationClip。`ExpressionController` が `aa/ih/ou/ee/oh` を受け取る口を1つ用意しておけば、将来 timing.json 駆動にも差し替えられる。
 4. **運用**: Windows 機のタスクスケジューラから起動。GitHub Actions は不可（GPU・ディスプレイなし、Personal ライセンスの手動認証廃止）。
 
-Unity を選ぶ合理性があるのは、(a) 既に作り込んだシェーダ・ライティング・揺れ物で見た目の差を出したい、(b) 将来 ScenarioXR の XR 体験と同じシナリオ資産を動画にも流用したい、の2点。ハイブリッド（日常回は Web、特別回は Unity で透過 WebM/ProRes を書き出して Remotion で合成）も成立する。
+ScenarioXR への追加タグ（`#series` `#board` `#count` `#sfx` `#camera`）は `ExecutionTagParser.Register` に Factory を足すだけで済む。`#wait_event:<actor>.voice.complete` の仕組みはそのまま字幕の切り替えにも使える。
 
 ## 長尺への展開
 
