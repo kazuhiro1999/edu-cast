@@ -10,3 +10,4 @@ AI駆動の教育系ショート動画チャンネル立ち上げに向けた方
 | [03-tech-pipeline.md](03-tech-pipeline.md) | ③ 技術構成（シナリオ → TTS → レンダリング → アップロード） |
 | [04-similar-cases.md](04-similar-cases.md) | 類似事例（ゆっくり系自動生成、AI量産系、エンジン再生型） |
 | [05-roadmap.md](05-roadmap.md) | 検証計画とマイルストーン |
+| [06-licensing.md](06-licensing.md) | 利用規約・ライセンス（Irodori-TTS、uLipSync、VRM、素材） |
